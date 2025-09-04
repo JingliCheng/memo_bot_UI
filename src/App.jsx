@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import './index.css';
 import { signInAnonymouslyUser, onAuthStateChange } from './firebase.js';
-import { sendChatMessage, getMessages, getCurrentUser } from './api.js';
+import { sendChatMessage, getMessagesWithCache, getCurrentUser } from './api.js';
 import MemoryPeek from './MemoryPeek.jsx';
 import RecentMessages from './RecentMessages.jsx';
 
@@ -120,7 +120,7 @@ function App() {
             
             // Try to load previous messages (optional)
             try {
-              const previousMessages = await getMessages(20);
+              const previousMessages = await getMessagesWithCache(20);
               const formattedMessages = previousMessages.map(msg => ({
                 id: msg.id || Date.now() + Math.random(),
                 type: msg.role === 'user' ? 'user' : 'bot',
