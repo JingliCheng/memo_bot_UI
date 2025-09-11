@@ -43,8 +43,9 @@ const apiRequest = async (endpoint, options = {}) => {
  * @param {Function} onChunk - Callback for each chunk of the response
  * @param {Function} onComplete - Callback when the response is complete
  * @param {Function} onError - Callback for errors
+ * @param {Function} onRawOutput - Callback for raw LLM output updates
  */
-export const sendChatMessage = async (message, onChunk, onComplete, onError) => {
+export const sendChatMessage = async (message, onChunk, onComplete, onError, onRawOutput) => {
   try {
     const token = await getIdToken();
     
@@ -64,6 +65,7 @@ export const sendChatMessage = async (message, onChunk, onComplete, onError) => 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let fullResponse = '';
+    let rawOutput = '';
 
     try {
       while (true) {
@@ -78,19 +80,38 @@ export const sendChatMessage = async (message, onChunk, onComplete, onError) => 
           if (line.startsWith('data:')) {
             const data = line.slice(5).trim();
             
-            if (data === '[DONE]') {
-              // Invalidate messages cache after new message
-              const userId = token ? 'authenticated' : 'anonymous';
-              cacheManager.invalidateUser('messages', userId);
-              
-              onComplete(fullResponse);
-              return;
-            }
-            
             try {
               const parsed = JSON.parse(data);
-              fullResponse += parsed;
-              onChunk(parsed);
+              
+              // Check if this is a completion marker
+              if (parsed.done) {
+                // Invalidate messages cache after new message
+                const userId = token ? 'authenticated' : 'anonymous';
+                cacheManager.invalidateUser('messages', userId);
+                
+                // Store final raw output
+                if (parsed.raw_output) {
+                  rawOutput = parsed.raw_output;
+                  onRawOutput(rawOutput);
+                }
+                
+                onComplete(fullResponse, rawOutput);
+                return;
+              }
+              
+              // Handle streaming chunks - now only content is sent
+              if (parsed.content) {
+                // Regular streaming chunk - just append to full response
+                fullResponse += parsed.content;
+                onChunk(parsed.content);
+              }
+              
+              // Handle raw output updates
+              if (parsed.raw_output && onRawOutput) {
+                rawOutput = parsed.raw_output;
+                onRawOutput(rawOutput);
+              }
+              
             } catch (e) {
               // Skip invalid JSON chunks
               console.warn('Invalid JSON chunk:', data);
@@ -222,5 +243,14 @@ export const getCurrentUser = async () => {
  */
 export const checkHealth = async () => {
   const response = await apiRequest('/health');
+  return await response.json();
+};
+
+/**
+ * Get Chroma DB data for inspection
+ * @returns {Promise<Object>} Chroma DB episodes and stats
+ */
+export const getChromaData = async () => {
+  const response = await apiRequest('/api/chroma/inspect');
   return await response.json();
 };
